@@ -15,7 +15,7 @@ python getmarkets.py [COINNAME]
 
 ## Licence
 
-[MIT](https://github.com/tcnksm/tool/blob/master/LICENCE)
+MIT
 
 ## Author
 
