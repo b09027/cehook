@@ -67,23 +67,23 @@ class ExchangeApiExecutor():
                 self.compare_from_last_to_current(json_config)
                 self.compare_from_current_to_last(json_config)
 
-                json_config[self.get_exchange_name()]["last_result"] = self.result_code_list
+                json_config[self.get_exchange_name()]["last_result"] = self.get_result()
 
             else:
-                my_dict = {"last_timestamp": self.date_str, "last_result": self.result_code_list}
+                my_dict = {"last_timestamp": self.date_str, "last_result": self.get_result()}
                 json_config[self.get_exchange_name()] = my_dict
                 print(self.get_exchange_name() + " data is created.")
 
         else:
             if (not os.path.exists("../conf/")):
                 os.makedirs("../conf/")
-            my_dict = {"last_timestamp": self.date_str, "last_result": self.result_code_list}
+            my_dict = {"last_timestamp": self.date_str, "last_result": self.get_result()}
             json_config = {self.get_exchange_name(): my_dict}
             print("conf file is created.")
 
 
         with open("../conf/last_result.json", "w") as file_obj:
-            json.dump(json_config, file_obj, indent=4)
+            json.dump(json_config, file_obj, indent=4, sort_keys=True)
 
     def compare_from_last_to_current(self, json_config):
         for needle in self.result_code_list:
@@ -102,6 +102,9 @@ class ExchangeApiExecutor():
     def get_exchange_name(self):
         return "parent class"
 
+    def get_result(self):
+        return self.result_code_list
+
     def get_listed_msg(self):
         return self.get_exchange_name() + " リストに " + str(self.new_only_list) + " がリストアップされました！"
 
@@ -112,6 +115,11 @@ class ExchangeApiExecutor():
 class CoinExchangeExecutor(ExchangeApiExecutor):
     def __init__(self, search_target_code):
         super().__init__(search_target_code)
+        self.pair_status_dict = {}      #pair 毎の Active 状態を保持するディクショナリ
+        self.activated_list = []        #今回 Active が True になったペア名を保持するリスト
+        self.deactivated_list = []      #今回 Active が False になったペア名を保持するリスト
+        self.listed_list = []           #今回リストアップされたペア名を保持するリスト
+        self.delisted_list = []         #今回リスト削除されたペア名を保持するリスト
 
     def call_api(self):
         url = "https://www.coinexchange.io/api/v1/getmarkets"
@@ -129,6 +137,18 @@ class CoinExchangeExecutor(ExchangeApiExecutor):
             print("error")
             return
 
+    def get_code_csv(self):
+        ret_csv = ""
+        for key, val in sorted(self.pair_status_dict.items()):
+            if ret_csv == "":
+                ret_csv = key + "(" + str(val) + ")" 
+            else:
+                ret_csv = ret_csv + "," + key + "(" + str(val) + ")"
+        return ret_csv
+
+    def get_pair_name(self, asset_info):
+        return asset_info["MarketAssetCode"] + "/" + asset_info["BaseCurrencyCode"]
+
     def parse(self):
         if self.result_json is None:
             self.result_api_stat = False
@@ -138,8 +158,11 @@ class CoinExchangeExecutor(ExchangeApiExecutor):
             self.result_api_stat = True
 
             for needle in self.result_json["result"]:
-                if (needle["MarketAssetCode"] not in self.result_code_list):
-                    self.result_code_list.append(needle["MarketAssetCode"])
+                pair_name = self.get_pair_name(needle)
+
+                if (pair_name not in self.result_code_list):
+                    self.result_code_list.append(pair_name)
+                    self.pair_status_dict[pair_name] = needle["Active"]
 
                     if self.search_target_code != "" and needle["MarketAssetCode"] == self.search_target_code:
                         print("found. " + needle["MarketAssetName"])
@@ -154,8 +177,69 @@ class CoinExchangeExecutor(ExchangeApiExecutor):
         #{"MarketID":"748","MarketAssetName":"NANJCOIN","MarketAssetCode":"NANJ","MarketAssetID":"562","MarketAssetType":"ethereum_asset","BaseCurrency":"Bitcoin","BaseCurrencyCode":"BTC","BaseCurrencyID":"1","Active":true},
         #{"MarketID":"782","MarketAssetName":"NANJCOIN","MarketAssetCode":"NANJ","MarketAssetID":"562","MarketAssetType":"ethereum_asset","BaseCurrency":"Dogecoin","BaseCurrencyCode":"DOGE","BaseCurrencyID":"4","Active":false},
 
+    def compare_from_last_to_current(self, json_config):
+        for current_key, current_value in sorted(self.pair_status_dict.items()):
+            exist_flag = False
+            for last_key, last_value in sorted(json_config[self.get_exchange_name()]["last_result"].items()):
+                if current_key == last_key:
+                    exist_flag = True
+
+                    #前のリストにあったので Active が新たに True になったか比較
+                    if not last_value and current_value != last_value:
+                        self.new_only_list.append(current_key)
+                        self.activated_list.append(current_key)
+                        print(current_key + ": status is changed. false -> true")
+                    break
+
+            if not exist_flag:
+                #前のリストになかった
+                self.new_only_list.append(current_key)
+                self.listed_list.append(current_key)
+                print(current_key + " is listed.")
+
+    def compare_from_current_to_last(self, json_config):
+        for last_key, last_value in sorted(json_config[self.get_exchange_name()]["last_result"].items()):
+            exist_flag = False
+            for current_key, current_value in sorted(self.pair_status_dict.items()):
+                if current_key == last_key:
+                    exist_flag = True
+
+                    #今回のリストにあったので Active が新たに False になったか比較
+                    if last_value and current_value != last_value:
+                        self.old_only_list.append(current_key)
+                        self.deactivated_list.append(current_key)
+                        print(current_key + ": status is changed. true -> false")
+                    break
+
+            if not exist_flag:
+                #今回のリストになかった
+                self.old_only_list.append(last_key)
+                self.delisted_list.append(last_key)
+                print(last_key + " is delisted.")
+
     def get_exchange_name(self):
         return "CoinExchange"
+
+    def get_result(self):
+        return self.pair_status_dict
+
+    def get_listed_msg(self):
+        msg = self.get_exchange_name() + " リスト状態が変わりました\n"
+        for needle in self.listed_list:
+            msg = msg + "    " + needle + " がリストアップされました！ Active: " + str(self.pair_status_dict[needle]) + "\n"
+        for needle in self.activated_list:
+            msg = msg + "    " + needle + " の Active 状態が True（有効状態）に変わりました\n"
+
+        return msg
+
+    def get_delisted_msg(self):
+        msg = self.get_exchange_name() + " リスト状態が変わりました\n"
+        for needle in self.delisted_list:
+            msg = msg + "     リストから " + needle + " が削除されました...\n"
+        for needle in self.deactivated_list:
+            msg = msg + "    " + needle + " の Active 状態が False（無効状態）に変わりました\n"
+
+        return msg
 
 
 class BinanceExecutor(ExchangeApiExecutor):
@@ -284,7 +368,7 @@ def main():
         post_to_slack(POST_TYPE_ALERT, exchange_obj.get_exchange_name() + " list に " + target_code + " を発見しました")
 
     if len(exchange_obj.new_only_list) != 0 or len(exchange_obj.old_only_list) != 0:
-        post_to_slack(POST_TYPE_LISTUP, exchange_obj.get_exchange_name() + " リスト総数：" + str(exchange_obj.result_length) + "\n現在の " + exchange_obj.get_exchange_name() + " リスト：\n```\n" + exchange_obj.get_code_csv() + "\n```")
+        post_to_slack(POST_TYPE_LISTUP, exchange_obj.get_exchange_name() + " リスト総数：" + str(exchange_obj.result_length) + "\n現在の " + exchange_obj.get_exchange_name() + " リスト：\n----------\n" + exchange_obj.get_code_csv() + "\n----------")
 
     if len(exchange_obj.new_only_list) != 0:
         post_to_slack(POST_TYPE_LISTUP, exchange_obj.get_listed_msg())
