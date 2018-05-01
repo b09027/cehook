@@ -63,17 +63,9 @@ class ExchangeApiExecutor():
             debug_print("{0}".format(json.dumps(json_config, indent=4)))
 
             if (self.get_exchange_name() in json_config):
-                for needle in self.result_code_list:
-                    if needle not in json_config[self.get_exchange_name()]["last_result"]:
-                        #前のリストになかった
-                        self.new_only_list.append(needle)
-                        print(needle + " is listed.")
 
-                for needle in json_config[self.get_exchange_name()]["last_result"]:
-                    if needle not in self.result_code_list:
-                        #今回のリストになかった
-                        self.old_only_list.append(needle)
-                        print(needle + " is delisted.")
+                self.compare_from_last_to_current(json_config)
+                self.compare_from_current_to_last(json_config)
 
                 json_config[self.get_exchange_name()]["last_result"] = self.result_code_list
 
@@ -93,9 +85,28 @@ class ExchangeApiExecutor():
         with open("../conf/last_result.json", "w") as file_obj:
             json.dump(json_config, file_obj, indent=4)
 
+    def compare_from_last_to_current(self, json_config):
+        for needle in self.result_code_list:
+            if needle not in json_config[self.get_exchange_name()]["last_result"]:
+                #前のリストになかった
+                self.new_only_list.append(needle)
+                print(needle + " is listed.")
+
+    def compare_from_current_to_last(self, json_config):
+        for needle in json_config[self.get_exchange_name()]["last_result"]:
+            if needle not in self.result_code_list:
+                #今回のリストになかった
+                self.old_only_list.append(needle)
+                print(needle + " is delisted.")
 
     def get_exchange_name(self):
         return "parent class"
+
+    def get_listed_msg(self):
+        return self.get_exchange_name() + " リストに " + str(self.new_only_list) + " がリストアップされました！"
+
+    def get_delisted_msg(self):
+        return self.get_exchange_name() + " リストから " + str(self.old_only_list) + " が削除されました..."
 
 
 class CoinExchangeExecutor(ExchangeApiExecutor):
@@ -139,6 +150,9 @@ class CoinExchangeExecutor(ExchangeApiExecutor):
 
         if (self.search_target_code != "" and not self.result_flag):
            print("not found.")
+
+        #{"MarketID":"748","MarketAssetName":"NANJCOIN","MarketAssetCode":"NANJ","MarketAssetID":"562","MarketAssetType":"ethereum_asset","BaseCurrency":"Bitcoin","BaseCurrencyCode":"BTC","BaseCurrencyID":"1","Active":true},
+        #{"MarketID":"782","MarketAssetName":"NANJCOIN","MarketAssetCode":"NANJ","MarketAssetID":"562","MarketAssetType":"ethereum_asset","BaseCurrency":"Dogecoin","BaseCurrencyCode":"DOGE","BaseCurrencyID":"4","Active":false},
 
     def get_exchange_name(self):
         return "CoinExchange"
@@ -192,11 +206,11 @@ class BinanceExecutor(ExchangeApiExecutor):
                 # 20銘柄以下はソートした価格変化率を表示しない
                 self.additional_info = "\n```\n騰落率 上位下位 10ペア\n\n"
 
-                for i in range(0,9):
+                for i in range(0,10):
                     self.additional_info += sorted_percent_list[i]["name"] + ": " + str(sorted_percent_list[i]["percent"]) + "% (volume: " + sorted_percent_list[i]["volume"] + ")\n"
 
                 self.additional_info += "\n" 
-                for i in range(len(sorted_percent_list) - 10, len(sorted_percent_list) - 1):
+                for i in range(len(sorted_percent_list) - 10, len(sorted_percent_list)):
                     self.additional_info += sorted_percent_list[i]["name"] + ": " + str(sorted_percent_list[i]["percent"]) + "% (volume: " + sorted_percent_list[i]["volume"] + ")\n"
                 self.additional_info += "```"
 
@@ -234,7 +248,7 @@ def build_healthcheck_msg(exchange_obj, search_target_code):
         else:
             result_msg = search_target_code + " はまだないみたい（´・ω・｀）"
 
-        msg = "*【" + exchange_obj.get_exchange_name() + "】*\nBOT 実行時刻：" + exchange_obj.date_str + "\n" + result_msg + "\n\nリスト総数：" + str(exchange_obj.result_length) + "\n現在の " + exchange_obj.get_exchange_name() + " リスト：\n```\n" + exchange_obj.get_code_csv() + "\n```"
+        msg = "*【" + exchange_obj.get_exchange_name() + "】*\nBOT 実行時刻：" + exchange_obj.date_str + "\n" + result_msg + "\n\nリスト総数：" + str(exchange_obj.result_length)
 
         if (exchange_obj.additional_info is not None):
             msg = msg + "\n" + exchange_obj.additional_info
@@ -269,11 +283,14 @@ def main():
     if exchange_obj.result_flag:
         post_to_slack(POST_TYPE_ALERT, exchange_obj.get_exchange_name() + " list に " + target_code + " を発見しました")
 
+    if len(exchange_obj.new_only_list) != 0 or len(exchange_obj.old_only_list) != 0:
+        post_to_slack(POST_TYPE_LISTUP, exchange_obj.get_exchange_name() + " リスト総数：" + str(exchange_obj.result_length) + "\n現在の " + exchange_obj.get_exchange_name() + " リスト：\n```\n" + exchange_obj.get_code_csv() + "\n```")
+
     if len(exchange_obj.new_only_list) != 0:
-        post_to_slack(POST_TYPE_LISTUP, exchange_obj.get_exchange_name() + " list に " + str(exchange_obj.new_only_list) + " がリストアップされました！")
+        post_to_slack(POST_TYPE_LISTUP, exchange_obj.get_listed_msg())
 
     if len(exchange_obj.old_only_list) != 0:
-        post_to_slack(POST_TYPE_LISTUP, exchange_obj.get_exchange_name() + " list から " + str(exchange_obj.old_only_list) + " が削除されました...")
+        post_to_slack(POST_TYPE_LISTUP, exchange_obj.get_delisted_msg())
 
 
     healthcheck_msg = build_healthcheck_msg(exchange_obj, target_code)
