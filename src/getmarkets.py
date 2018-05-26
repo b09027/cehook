@@ -68,6 +68,7 @@ class ExchangeApiExecutor():
                 self.compare_from_current_to_last(json_config)
 
                 json_config[self.get_exchange_name()]["last_result"] = self.get_result()
+                json_config[self.get_exchange_name()]["last_timestamp"] = self.date_str
 
             else:
                 my_dict = {"last_timestamp": self.date_str, "last_result": self.get_result()}
@@ -305,6 +306,54 @@ class BinanceExecutor(ExchangeApiExecutor):
         return "Binance"
 
 
+class CryptoBridgeExecutor(ExchangeApiExecutor):
+    def __init__(self, search_target_code):
+        super().__init__(search_target_code)
+
+    def call_api(self):
+        url = "https://api.crypto-bridge.org/api/v1/ticker"
+
+        try :
+            with urllib.request.urlopen(url) as res:
+                result = res.read().decode("utf-8")
+                debug_print(result)
+                self.result_json = json.loads(result)
+
+            self.parse()
+            return
+
+        except ValueError :
+            print("error")
+            return
+
+    def parse(self):
+        price_change_percent_list = []
+
+        if self.result_json is None:
+            self.result_api_stat = False
+            self.result_length = 0
+
+        else:
+            self.result_api_stat = True
+
+            for needle in self.result_json:
+                if (needle["id"] not in self.result_code_list):
+                    self.result_code_list.append(needle["id"])
+
+                    if self.search_target_code != "" and needle["id"] == self.search_target_code:
+                        print("found. " + needle["id"])
+                        self.result_flag = True
+
+            self.result_code_list.sort()
+            self.result_length = len(self.result_code_list)
+
+        if (self.search_target_code != "" and not self.result_flag):
+           print("not found.")
+
+    def get_exchange_name(self):
+        return "CryptoBridge"
+
+
 def debug_print(target):
     if debug_flag:
         print(target)
@@ -346,7 +395,7 @@ def main():
     argv = sys.argv
     argc = len(argv)
     if (argc != 2 and argc != 3):
-        print("Usage: python " + argv[0] + " EXCHANGE_NAME [TARGET_CODE]\nEXCHANGE_NAME: CE or Binance")
+        print("Usage: python " + argv[0] + " EXCHANGE_NAME [TARGET_CODE]\nEXCHANGE_NAME: CE or Binance or CB")
         quit()
 
     exchange_name = argv[1]
@@ -360,6 +409,8 @@ def main():
         exchange_obj = CoinExchangeExecutor(target_code)
     elif (exchange_name == "Binance"):
         exchange_obj = BinanceExecutor(target_code)
+    elif (exchange_name == "CB"):
+        exchange_obj = CryptoBridgeExecutor(target_code)
 
     exchange_obj.call_api()
     exchange_obj.compare_with_last_result()
