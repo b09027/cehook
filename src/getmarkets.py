@@ -354,6 +354,54 @@ class CryptoBridgeExecutor(ExchangeApiExecutor):
         return "CryptoBridge"
 
 
+class HitBTCExecutor(ExchangeApiExecutor):
+    def __init__(self, search_target_code):
+        super().__init__(search_target_code)
+
+    def call_api(self):
+        url = "https://api.hitbtc.com/api/2/public/ticker"
+
+        try :
+            with urllib.request.urlopen(url) as res:
+                result = res.read().decode("utf-8")
+                debug_print(result)
+                self.result_json = json.loads(result)
+
+            self.parse()
+            return
+
+        except ValueError :
+            print("error")
+            return
+
+    def parse(self):
+        price_change_percent_list = []
+
+        if self.result_json is None:
+            self.result_api_stat = False
+            self.result_length = 0
+
+        else:
+            self.result_api_stat = True
+
+            for needle in self.result_json:
+                if (needle["symbol"] not in self.result_code_list):
+                    self.result_code_list.append(needle["symbol"])
+
+                    if self.search_target_code != "" and needle["symbol"] == self.search_target_code:
+                        print("found. " + needle["symbol"])
+                        self.result_flag = True
+
+            self.result_code_list.sort()
+            self.result_length = len(self.result_code_list)
+
+        if (self.search_target_code != "" and not self.result_flag):
+           print("not found.")
+
+    def get_exchange_name(self):
+        return "HitBTC"
+
+
 def debug_print(target):
     if debug_flag:
         print(target)
@@ -395,7 +443,7 @@ def main():
     argv = sys.argv
     argc = len(argv)
     if (argc != 2 and argc != 3):
-        print("Usage: python " + argv[0] + " EXCHANGE_NAME [TARGET_CODE]\nEXCHANGE_NAME: CE or Binance or CB")
+        print("Usage: python " + argv[0] + " EXCHANGE_NAME [TARGET_CODE]\nEXCHANGE_NAME: CE or Binance or CB or HB")
         quit()
 
     exchange_name = argv[1]
@@ -411,6 +459,8 @@ def main():
         exchange_obj = BinanceExecutor(target_code)
     elif (exchange_name == "CB"):
         exchange_obj = CryptoBridgeExecutor(target_code)
+    elif (exchange_name == "HB"):
+        exchange_obj = HitBTCExecutor(target_code)
 
     exchange_obj.call_api()
     exchange_obj.compare_with_last_result()
