@@ -6,6 +6,7 @@ import urllib.request
 import json
 import slackweb
 import datetime
+import copy
 
 debug_flag = False
 
@@ -276,7 +277,7 @@ class BinanceExecutor(ExchangeApiExecutor):
             for needle in self.result_json:
                 if (needle["symbol"] not in self.result_code_list):
                     self.result_code_list.append(needle["symbol"])
-                    price_change_percent_list.append({"name":needle["symbol"], "percent":float(needle["priceChangePercent"]), "volume":needle["volume"]})
+                    price_change_percent_list.append({"name":needle["symbol"], "percent":float(needle["priceChangePercent"]), "quoteVolume":needle["quoteVolume"]})
                     
 
                     if self.search_target_code != "" and needle["symbol"] == self.search_target_code:
@@ -292,11 +293,11 @@ class BinanceExecutor(ExchangeApiExecutor):
                 self.additional_info = "\n```\n騰落率 上位下位 10ペア\n\n"
 
                 for i in range(0,10):
-                    self.additional_info += sorted_percent_list[i]["name"] + ": " + str(sorted_percent_list[i]["percent"]) + "% (volume: " + sorted_percent_list[i]["volume"] + ")\n"
+                    self.additional_info += sorted_percent_list[i]["name"] + ": " + str(sorted_percent_list[i]["percent"]) + "% (volume: " + sorted_percent_list[i]["quoteVolume"] + ")\n"
 
                 self.additional_info += "\n" 
                 for i in range(len(sorted_percent_list) - 10, len(sorted_percent_list)):
-                    self.additional_info += sorted_percent_list[i]["name"] + ": " + str(sorted_percent_list[i]["percent"]) + "% (volume: " + sorted_percent_list[i]["volume"] + ")\n"
+                    self.additional_info += sorted_percent_list[i]["name"] + ": " + str(sorted_percent_list[i]["percent"]) + "% (volume: " + sorted_percent_list[i]["quoteVolume"] + ")\n"
                 self.additional_info += "```"
 
         if (self.search_target_code != "" and not self.result_flag):
@@ -402,6 +403,55 @@ class HitBTCExecutor(ExchangeApiExecutor):
         return "HitBTC"
 
 
+class FCoinExecutor(ExchangeApiExecutor):
+    def __init__(self, search_target_code):
+        super().__init__(search_target_code)
+
+    def call_api(self):
+        url = "https://api.fcoin.com/v2/public/symbols"
+
+        try :
+            with urllib.request.urlopen(url) as res:
+                result = res.read().decode("utf-8")
+                debug_print(result)
+                self.result_json = json.loads(result)
+
+            self.parse()
+            return
+
+        except ValueError :
+            print("error")
+            return
+
+    def parse(self):
+        price_change_percent_list = []
+
+        if self.result_json is None:
+            self.result_api_stat = False
+            self.result_length = 0
+
+        else:
+            self.result_api_stat = True
+
+            for needle in self.result_json["data"]:
+                if (needle["name"] not in self.result_code_list):
+                    self.result_code_list.append(needle["name"])
+
+                    if self.search_target_code != "" and needle["name"] == self.search_target_code:
+                        print("found. " + needle["name"])
+                        self.result_flag = True
+
+            self.result_code_list.sort()
+            self.result_length = len(self.result_code_list)
+
+        if (self.search_target_code != "" and not self.result_flag):
+           print("not found.")
+
+    def get_exchange_name(self):
+        return "FCoin"
+
+
+
 def debug_print(target):
     if debug_flag:
         print(target)
@@ -443,7 +493,7 @@ def main():
     argv = sys.argv
     argc = len(argv)
     if (argc != 2 and argc != 3):
-        print("Usage: python " + argv[0] + " EXCHANGE_NAME [TARGET_CODE]\nEXCHANGE_NAME: CE or Binance or CB or HB")
+        print("Usage: python " + argv[0] + " EXCHANGE_NAME [TARGET_CODE]\nEXCHANGE_NAME: CE or Binance or CB or HB or FCoin")
         quit()
 
     exchange_name = argv[1]
@@ -461,6 +511,8 @@ def main():
         exchange_obj = CryptoBridgeExecutor(target_code)
     elif (exchange_name == "HB"):
         exchange_obj = HitBTCExecutor(target_code)
+    elif (exchange_name == "FCoin"):
+        exchange_obj = FCoinExecutor(target_code)
 
     exchange_obj.call_api()
     exchange_obj.compare_with_last_result()
